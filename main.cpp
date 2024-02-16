@@ -26,12 +26,9 @@
 #include "livox_lidar_api.h"
 #include "livox_lidar_def.h"
 
-#ifdef _WIN32
-#  include <winsock2.h>
-#else
+
 #  include <arpa/inet.h>
 #  include <unistd.h>
-#endif
 
 #include <chrono>
 #include <iostream>
@@ -283,11 +280,7 @@ int main(int argc, const char *argv[]) {
   // NORMAL
   SetLivoxLidarInfoChangeCallback(LidarInfoChangeCallback, nullptr);
 
-#ifdef WIN32
-  Sleep(300000);
-#else
-  sleep(300);
-#endif
+  sleep(5);
   LivoxLidarSdkUninit();
   printf("Livox Quick Start Demo End!\n");
   return 0;
