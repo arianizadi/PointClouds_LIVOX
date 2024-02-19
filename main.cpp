@@ -27,8 +27,8 @@
 #include "livox_lidar_def.h"
 
 
-#  include <arpa/inet.h>
-#  include <unistd.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <iostream>
@@ -44,67 +44,22 @@ void PointCloudCallback(uint32_t handle,
   if(data == nullptr) {
     return;
   }
-  // printf("point cloud handle: %u, data_num: %d, data_type: %d, length:
-  // %d, "
-  //        "frame_counter: %d\n",
-  //        handle, data->dot_num, data->data_type, data->length,
-  //        data->frame_cnt);
 
   LivoxLidarCartesianHighRawPoint *p_point_data
       = (LivoxLidarCartesianHighRawPoint *) data->data;
 
   printf("point cloud data: \n");
-  for(uint32_t i = 0; i < data->dot_num; i++) {
-    printf("x: %d, y: %d, z: %d\n",
-           p_point_data[i].x,
-           p_point_data[i].y,
-           p_point_data[i].z);
-  }
+  
+  // for(uint32_t i = 0; i < data->dot_num; i++) {
+  //   printf("x: %d, y: %d, z: %d\n",
+  //          p_point_data[i].x,
+  //          p_point_data[i].y,
+  //          p_point_data[i].z);
+  // }
 
-  if(data->data_type == kLivoxLidarCartesianCoordinateHighData) {
-    LivoxLidarCartesianHighRawPoint *p_point_data
-        = (LivoxLidarCartesianHighRawPoint *) data->data;
-    for(uint32_t i = 0; i < data->dot_num; i++) {
-      // p_point_data[i].x;
-      // p_point_data[i].y;
-      // p_point_data[i].z;
-    }
-  } else if(data->data_type == kLivoxLidarCartesianCoordinateLowData) {
-    LivoxLidarCartesianLowRawPoint *p_point_data
-        = (LivoxLidarCartesianLowRawPoint *) data->data;
-  } else if(data->data_type == kLivoxLidarSphericalCoordinateData) {
-    LivoxLidarSpherPoint *p_point_data
-        = (LivoxLidarSpherPoint *) data->data;
-  }
+  
+
 }
-
-void ImuDataCallback(uint32_t handle,
-                     const uint8_t dev_type,
-                     LivoxLidarEthernetPacket *data,
-                     void *client_data) {
-  if(data == nullptr) {
-    return;
-  }
-  printf(
-      "Imu data callback handle:%u, data_num:%u, data_type:%u, "
-      "length:%u, "
-      "frame_counter:%u.\n",
-      handle,
-      data->dot_num,
-      data->data_type,
-      data->length,
-      data->frame_cnt);
-}
-
-// void OnLidarSetIpCallback(livox_vehicle_status status, uint32_t handle,
-// uint8_t ret_code, void*) {
-//   if (status == kVehicleStatusSuccess) {
-//     printf("lidar set ip slot: %d, ret_code: %d\n",
-//       slot, ret_code);
-//   } else if (status == kVehicleStatusTimeout) {
-//     printf("lidar set ip number timeout\n");
-//   }
-// }
 
 void WorkModeCallback(livox_status status,
                       uint32_t handle,
@@ -227,30 +182,10 @@ void LidarInfoChangeCallback(const uint32_t handle,
          handle,
          info->sn);
 
-  // set the work mode to kLivoxLidarNormal, namely start the lidar
   SetLivoxLidarWorkMode(
       handle, kLivoxLidarNormal, WorkModeCallback, nullptr);
 
   QueryLivoxLidarInternalInfo(handle, QueryInternalInfoCallback, nullptr);
-
-  // LivoxLidarIpInfo lidar_ip_info;
-  // strcpy(lidar_ip_info.ip_addr, "192.168.1.10");
-  // strcpy(lidar_ip_info.net_mask, "255.255.255.0");
-  // strcpy(lidar_ip_info.gw_addr, "192.168.1.1");
-  // SetLivoxLidarLidarIp(handle, &lidar_ip_info, SetIpInfoCallback,
-  // nullptr);
-}
-
-void LivoxLidarPushMsgCallback(const uint32_t handle,
-                               const uint8_t dev_type,
-                               const char *info,
-                               void *client_data) {
-  struct in_addr tmp_addr;
-  tmp_addr.s_addr = handle;
-  std::cout << "handle: " << handle << ", ip: " << inet_ntoa(tmp_addr)
-            << ", push msg info: " << std::endl;
-  std::cout << info << std::endl;
-  return;
 }
 
 int main(int argc, const char *argv[]) {
@@ -269,12 +204,6 @@ int main(int argc, const char *argv[]) {
 
   // REQUIRED, to get point cloud data via 'PointCloudCallback'
   SetLivoxLidarPointCloudCallBack(PointCloudCallback, nullptr);
-
-  // OPTIONAL, to get imu data via 'ImuDataCallback'
-  // some lidar types DO NOT contain an imu component
-  SetLivoxLidarImuDataCallback(ImuDataCallback, nullptr);
-
-  SetLivoxLidarInfoCallback(LivoxLidarPushMsgCallback, nullptr);
 
   // REQUIRED, to get a handle to targeted lidar and set its work mode to
   // NORMAL
