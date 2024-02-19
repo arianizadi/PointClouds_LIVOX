@@ -1,41 +1,20 @@
-//
-// The MIT License (MIT)
-//
-// Copyright (c) 2022 Livox. All rights reserved.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to
-// permit persons to whom the Software is furnished to do so, subject to
-// the following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-//
-
 #include "livox_lidar_api.h"
 #include "livox_lidar_def.h"
 
-
 #include <arpa/inet.h>
-#include <unistd.h>
-
 #include <chrono>
 #include <iostream>
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <thread>
+#include <unistd.h>
+
+pcl::PointCloud<pcl::PointXYZ> cloud;
+int counter = 0;
 
 void PointCloudCallback(uint32_t handle,
                         const uint8_t dev_type,
@@ -48,17 +27,14 @@ void PointCloudCallback(uint32_t handle,
   LivoxLidarCartesianHighRawPoint *p_point_data
       = (LivoxLidarCartesianHighRawPoint *) data->data;
 
-  printf("point cloud data: \n");
-  
-  // for(uint32_t i = 0; i < data->dot_num; i++) {
-  //   printf("x: %d, y: %d, z: %d\n",
-  //          p_point_data[i].x,
-  //          p_point_data[i].y,
-  //          p_point_data[i].z);
-  // }
-
-  
-
+  for(uint32_t i = 0; i < data->dot_num; ++i) {
+    pcl::PointXYZ point;
+    point.x = p_point_data[i].x / 1000.0;
+    point.y = p_point_data[i].y / 1000.0;
+    point.z = p_point_data[i].z / 1000.0;
+    cloud.push_back(point);
+  }
+  counter++;
 }
 
 void WorkModeCallback(livox_status status,
@@ -212,5 +188,14 @@ int main(int argc, const char *argv[]) {
   sleep(5);
   LivoxLidarSdkUninit();
   printf("Livox Quick Start Demo End!\n");
+
+  // Save point cloud data to pcd file
+  cloud.width = counter;
+  cloud.height = 1;
+  cloud.is_dense = false;
+  cloud.resize(cloud.width * cloud.height);
+  pcl::io::savePCDFileASCII("room.pcd", cloud);
+  std::cerr << "Saved " << cloud.size() << " data points to room.pcd."
+            << std::endl;
   return 0;
 }
