@@ -20,7 +20,7 @@
 pcl::PointCloud< pcl::PointXYZ >::Ptr
     cloud(new pcl::PointCloud< pcl::PointXYZ >);
 int counter = 0;
-const int MAX_POINTS = 1000000; // Adjust this value based on your needs
+const int MIN_POINTS = 1000; // Adjust this value based on your needs
 
 void PointCloudCallback(uint32_t handle,
                         const uint8_t dev_type,
@@ -310,7 +310,7 @@ int main(int argc, const char *argv[]) {
   SetLivoxLidarInfoChangeCallback(LidarInfoChangeCallback, nullptr);
 
   // Run for a longer duration to collect more data
-  while(counter < MAX_POINTS) {
+  while(counter < MIN_POINTS) {
     sleep(1);
     printf("Collected %d points\n", counter);
   }
@@ -330,10 +330,11 @@ int main(int argc, const char *argv[]) {
   pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_no_floor
       = removeFloor(cloud_filtered);
 
+  // Create and save 2D map with red object outlines (floor included)
+  create2DMap(cloud_filtered, "room_2d_map.png");
+
   // Create and save 2D map with red object outlines (floor removed)
   create2DMap(cloud_no_floor, "room_2d_map_no_floor_angle_based.png");
-
-  return 0;
 
   return 0;
 }
