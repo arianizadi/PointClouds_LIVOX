@@ -2,19 +2,25 @@
 #include "livox_lidar_def.h"
 
 #include <arpa/inet.h>
-#include <chrono>
+#include <cmath>
 #include <iostream>
+#include <opencv2/opencv.hpp>
+#include <pcl/common/common.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <thread>
 #include <unistd.h>
 
-pcl::PointCloud<pcl::PointXYZ> cloud;
+pcl::PointCloud< pcl::PointXYZ >::Ptr
+    cloud(new pcl::PointCloud< pcl::PointXYZ >);
 int counter = 0;
+const int MAX_POINTS = 1000000; // Adjust this value based on your needs
 
 void PointCloudCallback(uint32_t handle,
                         const uint8_t dev_type,
@@ -32,9 +38,9 @@ void PointCloudCallback(uint32_t handle,
     point.x = p_point_data[i].x / 1000.0;
     point.y = p_point_data[i].y / 1000.0;
     point.z = p_point_data[i].z / 1000.0;
-    cloud.push_back(point);
+    cloud->push_back(point);
   }
-  counter++;
+  counter += data->dot_num;
 }
 
 void WorkModeCallback(livox_status status,
@@ -164,6 +170,128 @@ void LidarInfoChangeCallback(const uint32_t handle,
   QueryLivoxLidarInternalInfo(handle, QueryInternalInfoCallback, nullptr);
 }
 
+pcl::PointCloud< pcl::PointXYZ >::Ptr
+removeFloor(pcl::PointCloud< pcl::PointXYZ >::Ptr cloud) {
+  pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_filtered(
+      new pcl::PointCloud< pcl::PointXYZ >);
+  pcl::SACSegmentation< pcl::PointXYZ > seg;
+  pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+  pcl::ExtractIndices< pcl::PointXYZ > extract;
+
+  seg.setOptimizeCoefficients(true);
+  seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setDistanceThreshold(0.02); // 2cm threshold, adjust if needed
+  seg.setMaxIterations(100);
+
+  // Set the axis to which the plane should be perpendicular (assuming Z
+  // is up)
+  Eigen::Vector3f axis = Eigen::Vector3f::UnitZ();
+  seg.setAxis(axis);
+
+  // Set the angle epsilon (in radians)
+  // 0.15 radians is about 8.6 degrees
+  seg.setEpsAngle(0.15);
+
+  seg.setInputCloud(cloud);
+  seg.segment(*inliers, *coefficients);
+
+  if(inliers->indices.size() == 0) {
+    std::cerr
+        << "Could not estimate a planar model for the given dataset."
+        << std::endl;
+    return cloud;
+  }
+
+  // Calculate the angle between the detected plane normal and the
+  // vertical axis
+  double dot_product
+      = coefficients->values[2]; // cos(angle) = normal_z / 1
+  double angle = std::acos(std::abs(dot_product)) * 180.0 / M_PI;
+
+  std::cout << "Detected plane angle with vertical: " << angle
+            << " degrees" << std::endl;
+
+  // Only remove the plane if it's within our angle threshold
+  if(angle < 10.0) { // 10 degrees threshold, adjust as needed
+    extract.setInputCloud(cloud);
+    extract.setIndices(inliers);
+    extract.setNegative(true);
+    extract.filter(*cloud_filtered);
+    std::cout << "Floor plane removed" << std::endl;
+  } else {
+    std::cout
+        << "Detected plane not considered as floor, no points removed"
+        << std::endl;
+    *cloud_filtered = *cloud;
+  }
+
+  return cloud_filtered;
+}
+
+void create2DMap(pcl::PointCloud< pcl::PointXYZ >::Ptr cloud,
+                 const std::string &output_file) {
+  // Find the boundaries of the point cloud
+  pcl::PointXYZ min_pt, max_pt;
+  pcl::getMinMax3D(*cloud, min_pt, max_pt);
+
+  // Define the grid resolution (in meters)
+  float resolution = 0.01; // 1cm grid cells
+
+  // Calculate the grid size
+  int grid_width
+      = static_cast< int >((max_pt.x - min_pt.x) / resolution) + 1;
+  int grid_height
+      = static_cast< int >((max_pt.y - min_pt.y) / resolution) + 1;
+
+  // Create a 2D grid
+  cv::Mat grid = cv::Mat::zeros(grid_height, grid_width, CV_8UC1);
+
+  // Project points onto the 2D grid
+  for(const auto &point : cloud->points) {
+    int x = static_cast< int >((point.x - min_pt.x) / resolution);
+    int y = static_cast< int >((point.y - min_pt.y) / resolution);
+    if(x >= 0 && x < grid_width && y >= 0 && y < grid_height) {
+      grid.at< uchar >(grid_height - 1 - y, x) = 255; // Occupied cell
+    }
+  }
+
+  // Create a colored map
+  cv::Mat colored_map = cv::Mat::zeros(grid_height, grid_width, CV_8UC3);
+  colored_map.setTo(cv::Scalar(
+      200, 200, 200)); // Light grey background for unknown areas
+
+  // Find contours of objects
+  std::vector< std::vector< cv::Point > > contours;
+  cv::findContours(
+      grid, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+  // Draw filled objects and red outlines
+  for(const auto &contour : contours) {
+    cv::drawContours(colored_map,
+                     std::vector< std::vector< cv::Point > > {contour},
+                     0,
+                     cv::Scalar(0, 0, 0),
+                     cv::FILLED); // Fill objects with black
+    cv::drawContours(colored_map,
+                     std::vector< std::vector< cv::Point > > {contour},
+                     0,
+                     cv::Scalar(0, 0, 255),
+                     2); // Draw red outline
+  }
+
+  // Fill empty spaces with white
+  cv::Mat empty_spaces;
+  cv::dilate(grid, empty_spaces, cv::Mat(), cv::Point(-1, -1), 3);
+  colored_map.setTo(cv::Scalar(255, 255, 255), empty_spaces == 0);
+
+  // Save the map
+  cv::imwrite(output_file, colored_map);
+  std::cout << "2D map with red object outlines (floor removed) saved as "
+            << output_file << std::endl;
+}
+
 int main(int argc, const char *argv[]) {
   if(argc != 2) {
     printf("Params Invalid, must input config path.\n");
@@ -171,31 +299,41 @@ int main(int argc, const char *argv[]) {
   }
   const std::string path = argv[1];
 
-  // REQUIRED, to init Livox SDK2
+  // Initialize Livox SDK2
   if(!LivoxLidarSdkInit(path.c_str())) {
     printf("Livox Init Failed\n");
     LivoxLidarSdkUninit();
     return -1;
   }
 
-  // REQUIRED, to get point cloud data via 'PointCloudCallback'
   SetLivoxLidarPointCloudCallBack(PointCloudCallback, nullptr);
-
-  // REQUIRED, to get a handle to targeted lidar and set its work mode to
-  // NORMAL
   SetLivoxLidarInfoChangeCallback(LidarInfoChangeCallback, nullptr);
 
-  sleep(5);
-  LivoxLidarSdkUninit();
-  printf("Livox Quick Start Demo End!\n");
+  // Run for a longer duration to collect more data
+  while(counter < MAX_POINTS) {
+    sleep(1);
+    printf("Collected %d points\n", counter);
+  }
 
-  // Save point cloud data to pcd file
-  cloud.width = counter;
-  cloud.height = 1;
-  cloud.is_dense = false;
-  cloud.resize(cloud.width * cloud.height);
-  pcl::io::savePCDFileASCII("room.pcd", cloud);
-  std::cerr << "Saved " << cloud.size() << " data points to room.pcd."
-            << std::endl;
+  LivoxLidarSdkUninit();
+  printf("Data collection complete. Processing point cloud...\n");
+
+  // Downsample the point cloud using a voxel grid filter
+  pcl::VoxelGrid< pcl::PointXYZ > vg;
+  pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_filtered(
+      new pcl::PointCloud< pcl::PointXYZ >);
+  vg.setInputCloud(cloud);
+  vg.setLeafSize(0.05f, 0.05f, 0.05f); // 5cm voxel size
+  vg.filter(*cloud_filtered);
+
+  // Remove the floor plane
+  pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_no_floor
+      = removeFloor(cloud_filtered);
+
+  // Create and save 2D map with red object outlines (floor removed)
+  create2DMap(cloud_no_floor, "room_2d_map_no_floor_angle_based.png");
+
+  return 0;
+
   return 0;
 }
