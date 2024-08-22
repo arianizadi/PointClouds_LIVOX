@@ -1,4 +1,4 @@
 build/
 .cache
-room_3d_map_full.pcd
-room_3d_map.pcd
+*.pcd
+*.png

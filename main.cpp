@@ -20,7 +20,7 @@
 pcl::PointCloud< pcl::PointXYZ >::Ptr
     cloud(new pcl::PointCloud< pcl::PointXYZ >);
 int counter = 0;
-const int MIN_POINTS = 50000;
+const int MIN_POINTS = 1000; // Adjust this value based on your needs
 
 void PointCloudCallback(uint32_t handle,
                         const uint8_t dev_type,
@@ -294,14 +294,14 @@ void create2DMap(pcl::PointCloud< pcl::PointXYZ >::Ptr cloud,
 
 int main(int argc, const char *argv[]) {
   if(argc != 2) {
-    printf("Params Invalid, must input config path.\n");
+    std::cout << "Params Invalid, must input config path.\n";
     return -1;
   }
   const std::string path = argv[1];
 
   // Initialize Livox SDK2
   if(!LivoxLidarSdkInit(path.c_str())) {
-    printf("Livox Init Failed\n");
+    std::cout << "Livox Init Failed\n";
     LivoxLidarSdkUninit();
     return -1;
   }
@@ -309,47 +309,36 @@ int main(int argc, const char *argv[]) {
   SetLivoxLidarPointCloudCallBack(PointCloudCallback, nullptr);
   SetLivoxLidarInfoChangeCallback(LidarInfoChangeCallback, nullptr);
 
-  for(int i = 0; i < 100; i++) {
-    // Clear the point cloud and reset the counter at the start of each
-    // iteration
-    cloud->clear();
-    counter = 0;
-
-    // Run for a longer duration to collect more data
-    while(counter < MIN_POINTS) {
-      // sleep for 250ms to allow the point cloud to fill up
-      usleep(250000);
-      printf("Collected %d points\n", counter);
-    }
-
-    printf("Data collection complete. Processing point cloud...\n");
-
-    // Downsample the point cloud using a voxel grid filter
-    pcl::VoxelGrid< pcl::PointXYZ > vg;
-    pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_filtered(
-        new pcl::PointCloud< pcl::PointXYZ >);
-    vg.setInputCloud(cloud);
-    vg.setLeafSize(0.05f, 0.05f, 0.05f); // 5cm voxel size
-    vg.filter(*cloud_filtered);
-
-    // Remove the floor plane
-    pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_no_floor
-        = removeFloor(cloud_filtered);
-
-    // Create and save 2D map with red object outlines (floor included)
-    // create2DMap(cloud_filtered, "room_2d_map.png");
-
-    // Create and save 2D map with red object outlines (floor removed)
-    create2DMap(cloud_no_floor, "room_2d_map_no_floor_angle_based.png");
-
-    // Clear filtered clouds to free up memory
-    cloud_filtered->clear();
-    cloud_no_floor->clear();
-
-    printf("Iteration %d complete. Images updated.\n", i + 1);
+  // Run for a longer duration to collect more data
+  while(counter < MIN_POINTS) {
+    sleep(1);
+    std::cout << "Collected " << counter << " points\n";
   }
 
   LivoxLidarSdkUninit();
+  std::cout << "Data collection complete. Processing point cloud...\n";
+
+  // Downsample the point cloud using a voxel grid filter
+  pcl::VoxelGrid< pcl::PointXYZ > vg;
+  pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_filtered(
+      new pcl::PointCloud< pcl::PointXYZ >);
+  vg.setInputCloud(cloud);
+  vg.setLeafSize(0.05F, 0.05F, 0.05F); // 5cm voxel size
+  vg.filter(*cloud_filtered);
+
+  // Remove the floor plane
+  pcl::PointCloud< pcl::PointXYZ >::Ptr cloud_no_floor
+      = removeFloor(cloud_filtered);
+
+  // Create and save 2D map with red object outlines (floor included)
+  create2DMap(cloud_filtered, "room_2d_map.png");
+
+  // Create and save 2D map with red object outlines (floor removed)
+  create2DMap(cloud_no_floor, "room_2d_map_no_floor_angle_based.png");
+
+  // Create room.pcd
+  pcl::PCDWriter writer;
+  writer.writeBinary("room.pcd", *cloud_no_floor);
 
   return 0;
 }
